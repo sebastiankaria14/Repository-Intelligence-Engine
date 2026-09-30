@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { repositoryApi } from '../lib/api';
+import { ScanWebSocket } from '../lib/websocket';
 import type { RepositorySummary } from '../types/api';
 
 const POLL_INTERVAL_MS = 3000;
@@ -65,7 +66,42 @@ export function useRepositorySummary(repoId: string | null) {
     mountedRef.current = true;
     void fetchSummary();
 
+    let wsClient: ScanWebSocket | null = null;
+
     if (repoId) {
+      // Connect WebSocket for instantaneous real-time progress updates
+      try {
+        wsClient = new ScanWebSocket(repoId);
+        wsClient.connect();
+        wsClient.onProgress((progress) => {
+          if (!mountedRef.current) return;
+          setData((prev) => {
+            if (!prev) return prev;
+            const updatedJob = prev.scan_job
+              ? {
+                  ...prev.scan_job,
+                  status: progress.status as any,
+                  current_phase: progress.phase || prev.scan_job.current_phase,
+                  progress: progress.progress,
+                }
+              : null;
+            return {
+              ...prev,
+              scan_job: updatedJob,
+            };
+          });
+
+          // If scan completed or failed, refresh cached summary
+          if (progress.status === 'completed' || progress.status === 'failed') {
+            summaryCache.delete(repoId);
+            void fetchSummary();
+          }
+        });
+      } catch (err) {
+        console.warn('WebSocket connection error, fallback to polling:', err);
+      }
+
+      // Fallback polling
       pollRef.current = setInterval(() => {
         const cached = summaryCache.get(repoId);
         if (cached) {
@@ -82,6 +118,7 @@ export function useRepositorySummary(repoId: string | null) {
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
+      if (wsClient) wsClient.disconnect();
     };
   }, [repoId, fetchSummary]);
 

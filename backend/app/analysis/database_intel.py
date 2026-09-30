@@ -225,36 +225,35 @@ def _find_migrations(files: list[dict]) -> list[dict]:
 
 
 def _build_er_diagram(tables: list[dict], relationships: list[dict]) -> dict:
-    """Build a React Flow ER diagram."""
+    """Build a React Flow ER diagram with rich entityNode data and handles."""
     nodes = []
     edges = []
 
     for i, table in enumerate(tables):
-        col_labels = [f"{c['name']}: {c['type']}" for c in table.get("columns", [])[:6]]
+        col_labels = [f"{c['name']}: {c['type']}" for c in table.get("columns", [])[:8]]
         label = f"{table['name']}\n{'─' * 20}\n" + "\n".join(col_labels)
 
         nodes.append({
             "id": table["name"],
-            "position": {"x": (i % 3) * 350, "y": (i // 3) * 300},
-            "data": {"label": label},
-            "style": {
-                "background": "rgba(16, 185, 129, 0.1)",
-                "border": "1px solid rgba(16, 185, 129, 0.3)",
-                "borderRadius": "8px",
-                "padding": "12px",
-                "whiteSpace": "pre-line",
-                "fontSize": "12px",
-                "minWidth": "200px",
+            "type": "entityNode",
+            "position": {"x": (i % 3) * 380 + 40, "y": (i // 3) * 340 + 40},
+            "data": {
+                "label": table["name"],
+                "table": table,
             },
         })
 
-    for rel in relationships:
+    for i, rel in enumerate(relationships):
         edges.append({
-            "id": f"{rel['from_table']}-{rel['to_table']}",
+            "id": f"rel-{rel['from_table']}-{rel['to_table']}-{i}",
             "source": rel["from_table"],
             "target": rel["to_table"],
             "label": rel.get("type", "FK"),
             "animated": True,
+            "style": {
+                "stroke": "#a855f7",
+                "strokeWidth": 2,
+            },
         })
 
     return {"nodes": nodes, "edges": edges}

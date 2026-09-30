@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   FileCode,
   GitCommit,
@@ -10,9 +11,11 @@ import {
   Download,
   Zap,
   Layers,
+  ArrowRight,
 } from 'lucide-react';
 
 import NoRepository from '../components/NoRepository';
+import OverviewDetailModal, { type OverviewModalTab } from '../components/OverviewDetailModal';
 import { useCurrentRepoId, useRepository, useApi } from '../hooks/useRepository';
 import type { ArchitectureResponse, SecurityResponse, PerformanceResponse, TechnicalDebtResponse } from '../types/api';
 import { repositoryApi } from '../lib/api';
@@ -31,6 +34,7 @@ const scanPhaseLabels: Record<string, string> = {
 export default function Overview() {
   const repoId = useCurrentRepoId();
   const { repository, scanJob, loading: repoLoading, error: repoError, refetch } = useRepository(repoId);
+  const [detailModalTab, setDetailModalTab] = useState<OverviewModalTab | null>(null);
 
   const { data: architecture } = useApi<ArchitectureResponse>(
     repoId,
@@ -51,12 +55,14 @@ export default function Overview() {
 
   if (!repoId && !repoLoading && !repository) {
     return (
-      <div className="space-y-6 animate-fade-in">
+      <div className="space-y-6 animate-fade-in w-full">
         <div className="page-header">
           <h2 className="gradient-text">Repository Overview</h2>
           <p>Comprehensive intelligence & health snapshot of your codebase</p>
         </div>
-        <NoRepository />
+        <div className="flex items-center justify-center w-full min-h-[55vh]">
+          <NoRepository />
+        </div>
       </div>
     );
   }
@@ -71,7 +77,7 @@ export default function Overview() {
         <div className="glass-card p-5 border-l-4 border-[var(--accent-rose)]">
           <p className="text-[var(--accent-rose)] font-semibold text-sm mb-1">Failed to load repository</p>
           <p className="text-xs text-[var(--text-muted)]">{repoError}</p>
-          <button onClick={refetch} className="btn-secondary text-xs mt-3">Retry</button>
+          <button onClick={refetch} className="btn-secondary text-xs mt-3" style={{ border: 'none' }}>Retry</button>
         </div>
       </div>
     );
@@ -90,18 +96,21 @@ export default function Overview() {
           value: (repo.total_files ?? 0).toLocaleString(),
           icon: FileCode,
           color: 'var(--accent-blue)',
+          clickable: false,
         },
         {
           label: 'Total Lines',
           value: (repo.total_lines ?? 0).toLocaleString(),
           icon: GitCommit,
           color: 'var(--accent-cyan)',
+          clickable: false,
         },
         {
           label: 'Languages',
           value: `${repo.languages?.length ?? 0}`,
           icon: Users,
           color: 'var(--accent-purple)',
+          clickable: false,
         },
         {
           label: 'Health Score',
@@ -114,18 +123,27 @@ export default function Overview() {
             repo.health_score != null && repo.health_score >= 60
               ? 'var(--accent-green)'
               : 'var(--accent-amber)',
+          clickable: true,
+          modalTab: 'health' as OverviewModalTab,
+          hint: 'View diagnostic & penalty breakdown',
         },
         {
           label: 'Security Findings',
           value: `${securityCount}`,
           icon: Shield,
           color: securityCount > 0 ? 'var(--accent-rose)' : 'var(--accent-green)',
+          clickable: true,
+          modalTab: 'security' as OverviewModalTab,
+          hint: 'View vulnerabilities & fixes',
         },
         {
           label: 'Tech Debt Score',
           value: debtScore != null ? `${debtScore}` : '—',
           icon: AlertTriangle,
           color: debtScore && debtScore > 30 ? 'var(--accent-amber)' : 'var(--accent-cyan)',
+          clickable: true,
+          modalTab: 'debt' as OverviewModalTab,
+          hint: 'View code smells & effort',
         },
       ]
     : [];
@@ -146,10 +164,11 @@ export default function Overview() {
         {repo && (
           <button
             onClick={() => {
-              const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/repositories/${repo.id}/graph`;
+              const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/repositories/${repo.id}/graph`;
               window.open(url, '_blank');
             }}
             className="btn-secondary text-xs flex items-center gap-2 flex-shrink-0"
+            style={{ border: 'none' }}
           >
             <Download className="w-3.5 h-3.5" />
             Export Graph
@@ -247,36 +266,72 @@ export default function Overview() {
         </div>
       )}
 
-      {/* Metrics Row */}
+      {/* Metrics Row — Clickable Cards */}
       {stats.length > 0 && (
         <div className="stats-grid stagger-children">
           {stats.map((s, i) => {
             const Icon = s.icon;
+            const isClickable = s.clickable;
             return (
-              <div key={i} className="stat-card metric-card">
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: s.color }} />
-                  <span className="text-[11px] text-[var(--text-muted)] font-medium">{s.label}</span>
+              <div
+                key={i}
+                onClick={() => {
+                  if (isClickable && s.modalTab) {
+                    setDetailModalTab(s.modalTab);
+                  }
+                }}
+                className={`stat-card metric-card group relative transition-all duration-200 ${
+                  isClickable
+                    ? 'cursor-pointer hover:border-[var(--accent-blue)] hover:-translate-y-0.5 hover:shadow-lg'
+                    : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: s.color }} />
+                    <span className="text-[11px] text-[var(--text-muted)] font-medium">{s.label}</span>
+                  </div>
+                  {isClickable && (
+                    <span className="text-[10px] font-medium text-[var(--text-muted)] group-hover:text-[var(--accent-blue)] transition-colors flex items-center gap-0.5">
+                      Details <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </span>
+                  )}
                 </div>
+
                 <p className="text-2xl font-bold font-mono tracking-tight" style={{ color: s.color }}>
                   {s.value}
                 </p>
+
+                {isClickable && (
+                  <p className="text-[10px] text-[var(--text-muted)] mt-2 line-clamp-1 group-hover:text-[var(--text-secondary)] transition-colors">
+                    {s.hint}
+                  </p>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Architecture & Performance Summary */}
+      {/* Architecture & Performance Summary — Clickable Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {architecture && architecture.pattern && (
-          <div className="glass-card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-[rgba(99,102,241,0.1)] flex items-center justify-center border border-[rgba(99,102,241,0.2)]">
-                <Layers className="w-3.5 h-3.5 text-[var(--accent-blue)]" />
+          <div
+            onClick={() => setDetailModalTab('architecture')}
+            className="glass-card p-5 cursor-pointer hover:border-[var(--accent-blue)] hover:-translate-y-0.5 transition-all duration-200 group"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[rgba(99,102,241,0.1)] flex items-center justify-center border border-[rgba(99,102,241,0.2)]">
+                  <Layers className="w-3.5 h-3.5 text-[var(--accent-blue)]" />
+                </div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Architecture Pattern</h3>
               </div>
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Architecture Pattern</h3>
+              <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--accent-blue)] transition-colors flex items-center gap-1">
+                View Layers <ArrowRight className="w-3.5 h-3.5" />
+              </span>
             </div>
+
             <div className="flex items-baseline justify-between mb-2">
               <p className="text-xl font-bold text-[var(--accent-blue)]">
                 {architecture.pattern}
@@ -286,19 +341,28 @@ export default function Overview() {
               </span>
             </div>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-              Detected {architecture.layers?.length ?? 0} active architectural layers with component mappings.
+              Detected {architecture.layers?.length ?? 0} active architectural layers with component mappings. Click to see layer composition.
             </p>
           </div>
         )}
 
         {performance && (
-          <div className="glass-card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-[rgba(245,158,11,0.1)] flex items-center justify-center border border-[rgba(245,158,11,0.2)]">
-                <Zap className="w-3.5 h-3.5 text-[var(--accent-amber)]" />
+          <div
+            onClick={() => setDetailModalTab('performance')}
+            className="glass-card p-5 cursor-pointer hover:border-[var(--accent-amber)] hover:-translate-y-0.5 transition-all duration-200 group"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[rgba(245,158,11,0.1)] flex items-center justify-center border border-[rgba(245,158,11,0.2)]">
+                  <Zap className="w-3.5 h-3.5 text-[var(--accent-amber)]" />
+                </div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Performance Insights</h3>
               </div>
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Performance Insights</h3>
+              <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--accent-amber)] transition-colors flex items-center gap-1">
+                View All {perfCount} Findings <ArrowRight className="w-3.5 h-3.5" />
+              </span>
             </div>
+
             <div className="flex items-baseline justify-between mb-2">
               <p className="text-xl font-bold text-[var(--accent-amber)]">
                 {perfCount} Findings
@@ -308,11 +372,23 @@ export default function Overview() {
               </span>
             </div>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-              Analyzed call expressions, loop conditions, and query patterns across source files.
+              Analyzed call expressions, loop conditions, and query patterns across source files. Click to inspect exact file locations.
             </p>
           </div>
         )}
       </div>
+
+      {/* Drill-Down Detail Modal */}
+      <OverviewDetailModal
+        isOpen={detailModalTab !== null}
+        onClose={() => setDetailModalTab(null)}
+        initialTab={detailModalTab || 'health'}
+        repository={repo}
+        security={security}
+        performance={performance}
+        techDebt={techDebt}
+        architecture={architecture}
+      />
     </div>
   );
 }

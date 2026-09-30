@@ -5,6 +5,8 @@ CRUD + analysis endpoints for repositories.
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -72,17 +74,13 @@ async def create_repository(
         db.add(scan_job)
         await db.flush()
 
-        # Kick off Celery pipeline
-        try:
-            from app.tasks.pipeline import run_analysis_pipeline
+        # Kick off Local in-process async pipeline
+        from app.tasks.local_runner import run_pipeline_async
 
-            task = run_analysis_pipeline.delay(str(repo.id), str(scan_job.id))
-            scan_job.celery_task_id = task.id
-            log.info("pipeline_started", repo_id=str(repo.id), task_id=task.id)
-        except Exception as e:
-            log.error("pipeline_start_failed", error=str(e))
-            scan_job.status = ScanStatus.FAILED
-            scan_job.error_message = f"Failed to start pipeline: {e}"
+        asyncio.create_task(
+            run_pipeline_async(str(repo.id), str(scan_job.id), payload.github_url)
+        )
+        log.info("local_pipeline_dispatched", repo_id=str(repo.id))
 
         await db.commit()
         await db.refresh(repo)
@@ -166,8 +164,53 @@ async def get_scan_status(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 async def get_architecture(repo_id: UUID, db: AsyncSession = Depends(get_db)):
     repo = await _get_repo_or_404(repo_id, db)
     job = await _get_latest_scan_job(repo_id, db)
+    arch_data = None
     if job and job.results_summary and "architecture" in job.results_summary:
-        return job.results_summary["architecture"]
+        arch_data = job.results_summary["architecture"]
+
+    diagram = arch_data.get("diagram", {}) if isinstance(arch_data, dict) else {}
+    nodes = diagram.get("nodes", [])
+    is_legacy = len(nodes) <= 3 or any(n.get("type") != "componentNode" for n in nodes)
+
+    if (not arch_data or is_legacy) and repo.clone_path and Path(repo.clone_path).exists():
+        try:
+            from app.tasks.clone import enumerate_files
+            from app.parsing.registry import parser_registry
+            from app.analysis.architecture import analyze_architecture
+
+            repo_path = Path(repo.clone_path)
+            files = enumerate_files(repo_path)
+            all_symbols = []
+            all_imports = []
+
+            for f_info in files[:200]:
+                rel_path = f_info["path"]
+                if not parser_registry.get_parser(rel_path):
+                    continue
+                try:
+                    src = (repo_path / rel_path).read_text(encoding="utf-8", errors="replace")
+                    res = parser_registry.parse_file(rel_path, src)
+                    if res:
+                        all_symbols.extend([{"name": s.name, "type": s.type, "file_path": s.file_path, "line_start": s.line_start, "line_end": s.line_end, "signature": s.signature, "parent": s.parent, "visibility": s.visibility} for s in res.symbols])
+                        all_imports.extend([{"module": imp.module, "name": imp.name, "file_path": res.file_path} for imp in res.imports])
+                except Exception:
+                    pass
+
+            new_arch = analyze_architecture(files, all_symbols, all_imports, repo.languages or [])
+            if job:
+                new_summary = dict(job.results_summary or {})
+                new_summary["architecture"] = new_arch
+                job.results_summary = new_summary
+                await db.commit()
+            arch_data = new_arch
+        except Exception as e:
+            log.warning("architecture_rebuild_failed", error=str(e))
+
+    if arch_data:
+        res_dict = dict(arch_data) if isinstance(arch_data, dict) else {}
+        res_dict.setdefault("repository_id", str(repo_id))
+        return res_dict
+
     return {
         "repository_id": str(repo_id),
         "pattern": "pending_analysis",
@@ -195,8 +238,75 @@ async def get_apis(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 async def get_database(repo_id: UUID, db: AsyncSession = Depends(get_db)):
     repo = await _get_repo_or_404(repo_id, db)
     job = await _get_latest_scan_job(repo_id, db)
-    if job and job.results_summary and "database" in job.results_summary:
-        return job.results_summary["database"]
+    db_data = job.results_summary.get("database") if (job and job.results_summary) else None
+
+    # On-the-fly regeneration if missing or tables empty and clone path exists
+    has_tables = bool(db_data and db_data.get("tables"))
+    if not has_tables and repo.clone_path and Path(repo.clone_path).exists():
+        try:
+            from app.analysis.database_intel import analyze_database
+            from app.parsing.registry import parser_registry
+            from app.tasks.clone import enumerate_files
+
+            repo_path = Path(repo.clone_path)
+            files = enumerate_files(repo_path)
+            all_symbols = []
+            all_imports = []
+
+            for file_info in files:
+                rel_path = file_info["path"]
+                if not parser_registry.get_parser(rel_path) or file_info.get("size_bytes", 0) > 1_000_000:
+                    continue
+                abs_path = repo_path / rel_path
+                try:
+                    source = abs_path.read_text(encoding="utf-8", errors="replace")
+                    res = parser_registry.parse_file(rel_path, source)
+                    if res:
+                        all_symbols.extend([
+                            {"name": s.name, "type": s.type, "file_path": s.file_path, "signature": s.signature, "parent": s.parent}
+                            for s in res.symbols
+                        ])
+                        all_imports.extend([
+                            {"module": imp.module, "name": imp.name, "file_path": res.file_path}
+                            for imp in res.imports
+                        ])
+                except Exception:
+                    pass
+
+            new_db = analyze_database(files, all_symbols, all_imports)
+            if job:
+                new_summary = dict(job.results_summary or {})
+                new_summary["database"] = new_db
+                job.results_summary = new_summary
+                await db.commit()
+            db_data = new_db
+        except Exception as e:
+            log.warning("database_intel_rebuild_failed", error=str(e))
+
+    if db_data:
+        res = dict(db_data)
+        res.setdefault("repository_id", str(repo_id))
+        tables = res.get("tables") or []
+        tables_by_name = {t["name"]: t for t in tables}
+
+        er_diag = dict(res.get("er_diagram") or {})
+        nodes = list(er_diag.get("nodes") or [])
+
+        # If diagram nodes are missing but tables exist, build nodes
+        if not nodes and tables:
+            from app.analysis.database_intel import _build_er_diagram
+            er_diag = _build_er_diagram(tables, res.get("relationships") or [])
+            nodes = list(er_diag.get("nodes") or [])
+
+        for node in nodes:
+            node["type"] = "entityNode"
+            node_id = node.get("id")
+            if node_id in tables_by_name:
+                node.setdefault("data", {})
+                node["data"]["table"] = tables_by_name[node_id]
+        res["er_diagram"] = er_diag
+        return res
+
     return {
         "repository_id": str(repo_id),
         "tables": [],
@@ -210,8 +320,56 @@ async def get_database(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 async def get_dependencies(repo_id: UUID, db: AsyncSession = Depends(get_db)):
     repo = await _get_repo_or_404(repo_id, db)
     job = await _get_latest_scan_job(repo_id, db)
-    if job and job.results_summary and "dependencies" in job.results_summary:
-        return job.results_summary["dependencies"]
+    dep_data = job.results_summary.get("dependencies") if (job and job.results_summary) else None
+
+    # On-the-fly regeneration if missing or service_graph is empty and clone path exists
+    service_nodes = (dep_data.get("service_graph") or {}).get("nodes", []) if dep_data else []
+    if (not dep_data or not service_nodes) and repo.clone_path and Path(repo.clone_path).exists():
+        try:
+            from app.analysis.dependency_intel import analyze_dependencies
+            from app.parsing.registry import parser_registry
+            from app.tasks.clone import enumerate_files
+
+            repo_path = Path(repo.clone_path)
+            files = enumerate_files(repo_path)
+            all_imports = []
+
+            for file_info in files:
+                rel_path = file_info["path"]
+                if not parser_registry.get_parser(rel_path) or file_info.get("size_bytes", 0) > 1_000_000:
+                    continue
+                abs_path = repo_path / rel_path
+                try:
+                    source = abs_path.read_text(encoding="utf-8", errors="replace")
+                    res = parser_registry.parse_file(rel_path, source)
+                    if res:
+                        all_imports.extend([
+                            {
+                                "module": imp.module,
+                                "name": imp.name,
+                                "file_path": res.file_path,
+                                "is_relative": getattr(imp, "is_relative", False),
+                            }
+                            for imp in res.imports
+                        ])
+                except Exception:
+                    pass
+
+            new_deps = analyze_dependencies(str(repo_path), files, all_imports)
+            if job:
+                new_summary = dict(job.results_summary or {})
+                new_summary["dependencies"] = new_deps
+                job.results_summary = new_summary
+                await db.commit()
+            dep_data = new_deps
+        except Exception as e:
+            log.warning("dependencies_rebuild_failed", error=str(e))
+
+    if dep_data:
+        res = dict(dep_data)
+        res.setdefault("repository_id", str(repo_id))
+        return res
+
     return {
         "repository_id": str(repo_id),
         "packages": [],
@@ -290,9 +448,39 @@ async def get_graph(
     """Knowledge graph — Cytoscape.js-compatible nodes and edges."""
     repo = await _get_repo_or_404(repo_id, db)
     try:
-        from app.graph.neo4j_repository import get_graph_repository
+        from app.graph import get_graph_repository
         graph_repo = await get_graph_repository()
-        subgraph = await graph_repo.get_subgraph(str(repo_id), node_type, limit)
+        subgraph = await graph_repo.get_subgraph(str(repo_id), [node_type] if node_type else None, limit)
+
+        # Reconstruct on demand if in-memory graph was lost (e.g. server restart)
+        if len(subgraph.nodes) == 0 and repo.clone_path and Path(repo.clone_path).exists():
+            log.info("reconstructing_graph_on_demand", repo_id=str(repo_id))
+            from app.tasks.local_runner import build_in_memory_graph
+            from app.tasks.clone import enumerate_files
+            from app.parsing.registry import parser_registry
+
+            repo_path = Path(repo.clone_path)
+            files = enumerate_files(repo_path)
+            all_symbols = []
+            all_imports = []
+            all_calls = []
+
+            for f_info in files[:120]:
+                rel_path = f_info["path"]
+                if not parser_registry.get_parser(rel_path):
+                    continue
+                try:
+                    src = (repo_path / rel_path).read_text(encoding="utf-8", errors="replace")
+                    res = parser_registry.parse_file(rel_path, src)
+                    if res:
+                        all_symbols.extend([{"name": s.name, "type": s.type, "file_path": s.file_path, "line_start": s.line_start, "line_end": s.line_end, "signature": s.signature, "parent": s.parent, "visibility": s.visibility} for s in res.symbols])
+                        all_imports.extend([{"module": imp.module, "name": imp.name, "file_path": res.file_path} for imp in res.imports])
+                        all_calls.extend([{"caller": c.caller, "callee": c.callee, "file_path": c.file_path, "line_number": c.line_number} for c in res.calls])
+                except Exception:
+                    pass
+
+            await build_in_memory_graph(str(repo_id), files, all_symbols, all_imports, all_calls)
+            subgraph = await graph_repo.get_subgraph(str(repo_id), [node_type] if node_type else None, limit)
         nodes = [
             {
                 "id": n.id,
@@ -334,35 +522,40 @@ async def chat(
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """AI chat grounded in the knowledge graph, vector search, and Meilisearch."""
+    """Local offline AI chat grounded in the knowledge graph and AST analysis."""
     repo = await _get_repo_or_404(repo_id, db)
+    job = await _get_latest_scan_job(repo_id, db)
+    summary = job.results_summary if job else {}
 
-    from app.ai.rag import RAGOrchestrator
+    repo_info = {
+        "name": repo.name,
+        "clone_path": repo.clone_path,
+        "languages": repo.languages or [],
+        "frameworks": repo.frameworks or [],
+        "package_managers": repo.package_managers or [],
+        "total_files": repo.total_files,
+        "total_lines": repo.total_lines,
+        "health_score": repo.health_score,
+        "default_branch": repo.default_branch,
+        "github_url": repo.github_url,
+    }
 
-    orchestrator = RAGOrchestrator()
+    from app.ai.local_engine import local_reasoning_engine
+
     try:
-        result = await orchestrator.answer(
-            payload.message,
-            payload.history or [],
-            str(repo_id),
-            payload.model,
+        return await local_reasoning_engine.answer(
+            query=payload.message,
+            history=payload.history or [],
+            repo_id=str(repo_id),
+            results_summary=summary,
+            repo_info=repo_info,
         )
+    except Exception as exc:
+        log.exception("local_chat_failed", repo_id=str(repo_id), error=str(exc))
         return ChatResponse(
-            answer=result.answer,
-            citations=result.citations,
-            model_used=result.model_used,
-            reasoning_type=result.reasoning_type,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.exception("chat_endpoint_failed", repo_id=str(repo_id), error=str(exc))
-        return ChatResponse(
-            answer=(
-                "Sorry, I couldn't process that request. The AI backend may not "
-                "be available. Please ensure the analysis pipeline has completed "
-                "and the supporting services are running."
-            ),
+            answer=f"Could not process inquiry: {exc}",
             citations=[],
-            model_used="none",
+            model_used="RIE Local Intelligence Engine (Offline / Deterministic)",
             reasoning_type="general",
         )
 

@@ -11,25 +11,25 @@ interface Message extends ChatMessage {
 }
 
 const suggestedQuestions = [
+  'Explain what this repository is about',
+  'How do I run or setup this project?',
+  'Why is the health score what it is?',
   'What architecture pattern does this codebase follow?',
-  'What are the main security vulnerabilities?',
-  'Which files change together most often?',
-  'What would break if Redis went down?',
-  'Show me all undocumented public APIs',
-  'Who owns the authentication module?',
+  'Show me security findings and hardcoded secrets',
+  'What are the main performance bottlenecks?',
+  'List all discovered API endpoints',
+  'Are there any circular dependency cycles?',
 ];
 
 export default function Chat() {
   const repoId = useCurrentRepoId();
-  const [messages, setMessages] = useState<Message[]>(
-    [
-      {
-        role: 'assistant',
-        content:
-          "I'm your AI code intelligence assistant. I can answer questions about this repository's architecture, APIs, dependencies, security, and more — all grounded in the knowledge graph. What would you like to know?",
-      },
-    ],
-  );
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content:
+        "I'm your AI code intelligence assistant. I can explain what this repository is about, how to run it, analyze architecture, detect security vulnerabilities, inspect database models, and explain health metrics. What would you like to know?",
+    },
+  ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export default function Chat() {
         ...prev,
         {
           role: 'assistant',
-          content: `Sorry, I encountered an error: ${message}. The AI backend may not be available yet (Phase 6).`,
+          content: `Sorry, I encountered an error: ${message}.`,
         },
       ]);
     } finally {
@@ -105,7 +105,7 @@ export default function Chat() {
       <div className="mb-4">
         <h2 className="text-2xl font-bold gradient-text">AI Chat</h2>
         <p className="text-[var(--text-muted)] text-sm mt-1">
-          Ask questions grounded in the knowledge graph{repoId && ' · RAG pipeline'}
+          Ask questions grounded in codebase AST, documentation, and architecture
         </p>
       </div>
 
@@ -132,7 +132,7 @@ export default function Chat() {
                     msg.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed font-sans">{msg.content}</p>
                   {msg.citations && msg.citations.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-[var(--border-color)]">
                       <p className="text-xs font-semibold text-[var(--text-muted)] mb-2">
@@ -178,7 +178,7 @@ export default function Chat() {
                 </div>
                 <div className="chat-message chat-message-assistant">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-[var(--text-muted)]">Searching Neo4j graph & Qdrant vectors…</span>
+                    <span className="text-xs text-[var(--text-muted)]">Traversing knowledge graph & codebase documentation…</span>
                     <div className="flex gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-blue)] animate-bounce" />
                       <span
@@ -205,7 +205,7 @@ export default function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Ask about architecture, security, performance, dependencies..."
+                placeholder="Ask about project purpose, setup, architecture, security, performance..."
                 className="flex-1 px-4 py-3 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)] transition-colors"
                 disabled={isLoading}
               />
@@ -213,6 +213,7 @@ export default function Chat() {
                 onClick={handleSend}
                 disabled={isLoading || !input.trim()}
                 className="btn-primary py-3 px-5 rounded-xl text-sm"
+                style={{ border: 'none' }}
               >
                 <Send className="w-4 h-4" />
                 <span>Send</span>
@@ -234,7 +235,8 @@ export default function Chat() {
                 <button
                   key={i}
                   onClick={() => handleSuggestedClick(q)}
-                  className="w-full text-left p-3 rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[rgba(99,102,241,0.1)] hover:text-[var(--text-primary)] transition-colors border border-transparent hover:border-[var(--border-color)]"
+                  className="w-full text-left p-3 rounded-lg text-xs text-[var(--text-secondary)] bg-white/[0.03] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-all cursor-pointer shadow-sm border-none"
+                  style={{ border: 'none' }}
                 >
                   {q}
                 </button>

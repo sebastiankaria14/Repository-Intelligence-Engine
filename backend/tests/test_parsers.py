@@ -265,3 +265,145 @@ def test_javascript_parser_extracts_imports_and_calls():
     assert ("m", "obj.bar") in by_caller
     assert ("m", "new D") in by_caller
     assert ("f", "f2") in by_caller
+
+
+# --------------------------------------------------------------------------- #
+# Go
+# --------------------------------------------------------------------------- #
+
+_GO = """package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+type Config struct {
+    Port int
+}
+
+type Runner interface {
+    Run() error
+}
+
+func (c *Config) Address() string {
+    return fmt.Sprintf(":%d", c.Port)
+}
+
+func StartServer(cfg *Config) error {
+    fmt.Println(cfg.Address())
+    return nil
+}
+"""
+
+
+def test_go_parser_extracts_symbols():
+    from app.parsing.go_parser import TreeSitterGoParser
+    result = TreeSitterGoParser().parse("main.go", _GO)
+
+    assert result.language == "Go"
+
+    cfg = _by_name(result, "Config")
+    assert cfg.type == "class"
+    assert cfg.visibility == "public"
+
+    runner = _by_name(result, "Runner")
+    assert runner.type == "interface"
+    assert runner.visibility == "public"
+
+    addr = _by_name(result, "Address")
+    assert addr.type == "method"
+    assert addr.parent == "Config"
+    assert addr.return_type == "string"
+
+    start = _by_name(result, "StartServer")
+    assert start.type == "function"
+    assert start.visibility == "public"
+
+
+def test_go_parser_extracts_imports_and_calls():
+    from app.parsing.go_parser import TreeSitterGoParser
+    result = TreeSitterGoParser().parse("main.go", _GO)
+
+    modules = {i.module for i in result.imports}
+    assert "fmt" in modules
+    assert "net/http" in modules
+
+    callees = {c.callee for c in result.calls}
+    assert "fmt.Sprintf" in callees or "fmt.Println" in callees
+
+
+# --------------------------------------------------------------------------- #
+# Rust
+# --------------------------------------------------------------------------- #
+
+_RUST = """use std::collections::HashMap;
+use std::sync::Arc;
+
+pub struct Engine {
+    workers: usize,
+}
+
+pub trait Worker {
+    fn process(&self);
+}
+
+impl Engine {
+    pub fn new(workers: usize) -> Self {
+        Engine { workers }
+    }
+}
+
+pub fn execute() {
+    let eng = Engine::new(4);
+    println!("started");
+}
+"""
+
+
+def test_rust_parser_extracts_symbols():
+    from app.parsing.rust_parser import TreeSitterRustParser
+    result = TreeSitterRustParser().parse("lib.rs", _RUST)
+
+    assert result.language == "Rust"
+
+    eng = _by_name(result, "Engine")
+    assert eng.type == "class"
+    assert eng.visibility == "public"
+
+    worker = _by_name(result, "Worker")
+    assert worker.type == "interface"
+    assert worker.visibility == "public"
+
+    new_fn = _by_name(result, "new")
+    assert new_fn.type == "method"
+    assert new_fn.parent == "Engine"
+    assert new_fn.visibility == "public"
+
+    exec = _by_name(result, "execute")
+    assert exec.type == "function"
+    assert exec.visibility == "public"
+
+
+def test_rust_parser_extracts_imports_and_calls():
+    from app.parsing.rust_parser import TreeSitterRustParser
+    result = TreeSitterRustParser().parse("lib.rs", _RUST)
+
+    modules = {i.module for i in result.imports}
+    assert any("HashMap" in m for m in modules)
+
+    callees = {c.callee for c in result.calls}
+    assert "Engine::new" in callees or "println!" in callees
+
+
+def test_registry_supports_go_and_rust():
+    exts = set(parser_registry.supported_extensions)
+    assert ".go" in exts
+    assert ".rs" in exts
+
+    from app.parsing.go_parser import TreeSitterGoParser
+    from app.parsing.rust_parser import TreeSitterRustParser
+
+    assert isinstance(parser_registry.get_parser("server.go"), TreeSitterGoParser)
+    assert isinstance(parser_registry.get_parser("main.rs"), TreeSitterRustParser)
+

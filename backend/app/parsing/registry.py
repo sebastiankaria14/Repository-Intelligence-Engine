@@ -87,6 +87,22 @@ def create_default_registry() -> ParserRegistry:
     except (ImportError, AttributeError) as e:
         log.warning("parser_load_failed", parser="Java", error=str(e))
 
+    # Register Go parser
+    try:
+        from app.parsing.go_parser import TreeSitterGoParser
+        registry.register(TreeSitterGoParser())
+        log.info("parser_loaded", parser="TreeSitterGoParser")
+    except (ImportError, AttributeError) as e:
+        log.warning("parser_load_failed", parser="Go", error=str(e))
+
+    # Register Rust parser
+    try:
+        from app.parsing.rust_parser import TreeSitterRustParser
+        registry.register(TreeSitterRustParser())
+        log.info("parser_loaded", parser="TreeSitterRustParser")
+    except (ImportError, AttributeError) as e:
+        log.warning("parser_load_failed", parser="Rust", error=str(e))
+
     return registry
 
 

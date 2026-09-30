@@ -5,6 +5,15 @@ Main application entry point with lifespan management.
 
 from __future__ import annotations
 
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -50,9 +59,19 @@ app = FastAPI(
 )
 
 # CORS middleware
+cors_origins = list(dict.fromkeys(settings.backend_cors_origins + [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.backend_cors_origins,
+    allow_origins=cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

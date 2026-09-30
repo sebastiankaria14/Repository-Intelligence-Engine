@@ -1,44 +1,42 @@
-import { PlusCircle, GitBranch } from 'lucide-react';
-import { useRepositoryContext } from '../contexts/useRepositoryContext';
-import { repositoryApi } from '../lib/api';
+import { GraphMotif } from './GraphMotif';
+import { useModal } from '../contexts/ModalContext';
 
 export default function NoRepository() {
-  const { setRepo } = useRepositoryContext();
-
-  const handleAnalyze = async () => {
-    const url = prompt('Enter a GitHub repository URL:');
-    if (!url) return;
-    try {
-      const { data } = await repositoryApi.create({ github_url: url });
-      setRepo(data);
-    } catch (err) {
-      console.error('Failed to add repository:', err);
-    }
-  };
+  const { openRepositoryModal } = useModal();
 
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center animate-fade-in">
-      <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
-        style={{
-          background: 'var(--gradient-primary)',
-          boxShadow: '0 0 40px rgba(99,102,241,0.25)',
-        }}
-      >
-        <GitBranch className="w-7 h-7 text-white" />
+    <div className="flex flex-col items-center justify-center min-h-[68vh] px-6 py-16 animate-fade-in text-center max-w-3xl mx-auto">
+      {/* Network Diagram */}
+      <div className="mb-8 relative group">
+        <div className="absolute inset-0 bg-amber-500/10 rounded-full blur-3xl transition-all group-hover:bg-amber-500/20" />
+        <div className="relative text-amber-500/70 hover:text-amber-500 transition-all duration-300 transform group-hover:scale-105">
+          <GraphMotif size={240} />
+        </div>
       </div>
-      <h3 className="text-lg font-semibold gradient-text mb-2">
-        No repository selected
-      </h3>
-      <p className="text-xs text-[var(--text-muted)] mb-6 max-w-md leading-relaxed">
-        Add a GitHub repository to begin analysis. The Overview, Architecture,
-        API, Database, Dependencies, Git Insights, Graph Explorer, and AI Chat
-        views will be populated with real data from the knowledge graph.
+
+      {/* Headline */}
+      <h2 className="text-3xl sm:text-4xl font-extrabold mb-4 tracking-tight text-gray-100 font-[Plus_Jakarta_Sans]">
+        No Repository Selected
+      </h2>
+
+      {/* Subtext */}
+      <p className="text-base sm:text-lg text-gray-400 max-w-xl mx-auto mb-8 leading-relaxed">
+        Add a GitHub repository or open a local folder to analyze its architecture, discover APIs, map database dependencies, and query the codebase knowledge graph.
       </p>
-      <button onClick={handleAnalyze} className="btn-primary">
-        <PlusCircle className="w-4 h-4" />
-        Add Repository
+
+      {/* CTA Button */}
+      <button
+        onClick={openRepositoryModal}
+        className="btn-primary px-8 py-3.5 text-base font-semibold rounded-xl flex items-center gap-3 shadow-xl shadow-amber-500/20 hover:scale-[1.02] transition-all"
+      >
+        <span className="text-xl font-bold">+</span> Add Repository
       </button>
+
+      {/* Footer hint */}
+      <p className="mt-10 text-xs text-gray-500 font-medium tracking-wide">
+        Supports public repositories &amp; authenticated private repositories
+      </p>
     </div>
   );
 }
+

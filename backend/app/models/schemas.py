@@ -9,15 +9,27 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 # ── Repository ─────────────────────────────────────────────
 
 
 class RepositoryCreate(BaseModel):
-    github_url: str = Field(..., description="GitHub repository URL to analyze")
+    github_url: str = Field(..., description="GitHub repository URL or local directory to analyze")
     project_name: Optional[str] = Field(None, description="Optional project name")
+
+    @field_validator("github_url")
+    @classmethod
+    def validate_url_or_path(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Repository target cannot be empty")
+        val = v.strip()
+        if val.startswith("-"):
+            raise ValueError("Repository target cannot start with a hyphen '-'")
+        if "\x00" in val:
+            raise ValueError("Null bytes are prohibited")
+        return val
 
 
 class RepositoryResponse(BaseModel):

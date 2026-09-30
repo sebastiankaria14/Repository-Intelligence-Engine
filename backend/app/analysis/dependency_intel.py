@@ -210,28 +210,110 @@ def _parse_pom_xml(repo_path: str) -> list[dict]:
     return packages
 
 
+def _clean_target_module(target_module: str) -> str:
+    """Clean and normalize import module names."""
+    if not target_module:
+        return ""
+    mod = target_module.replace("\\", "/").lstrip("./")
+    parts = mod.split("/")
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}"
+    if "." in mod and "/" not in mod:
+        dot_parts = [p for p in mod.split(".") if p]
+        if len(dot_parts) >= 2 and dot_parts[0] in ("app", "src", "backend", "frontend"):
+            return f"{dot_parts[0]}/{dot_parts[1]}"
+        if dot_parts:
+            return dot_parts[0]
+    return parts[0] if parts else mod
+
+
+def _file_to_module(file_path: str) -> str:
+    """Convert a file path to a logical module/subsystem name."""
+    if not file_path:
+        return ""
+    clean = file_path.replace("\\", "/").strip("/")
+    parts = clean.split("/")
+    if len(parts) >= 3 and parts[0] in ("backend", "frontend", "src", "packages"):
+        return f"{parts[0]}/{parts[1]}"
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}" if parts[0] in ("app", "lib", "components") else parts[0]
+    return parts[0] if parts else clean
+
+
 def _build_service_graph(imports: list[dict], files: list[dict]) -> dict:
-    """Build an internal module dependency graph from imports."""
+    """Build an internal module dependency graph from imports with blast-radius metadata."""
     nodes_set: set[str] = set()
-    edges_list: list[dict] = []
+    edges_map: dict[tuple[str, str], int] = defaultdict(int)
+    incoming_counts: dict[str, int] = defaultdict(int)
+    outgoing_counts: dict[str, int] = defaultdict(int)
 
     for imp in imports:
-        if not imp.get("is_relative", False):
-            continue
         source_file = imp.get("file_path", "")
-        target_module = imp.get("module", "")
+        target_raw = imp.get("module", "")
+        is_rel = imp.get("is_relative", False) or target_raw.startswith((".", "app.", "src."))
+
+        if not is_rel:
+            continue
 
         src_module = _file_to_module(source_file)
-        if src_module and target_module and src_module != target_module:
-            nodes_set.add(src_module)
-            nodes_set.add(target_module)
-            edges_list.append({
-                "id": f"{src_module}->{target_module}",
-                "source": src_module,
-                "target": target_module,
-            })
+        tgt_module = _clean_target_module(target_raw)
 
-    nodes = [{"id": n, "data": {"label": n}} for n in nodes_set]
+        if src_module and tgt_module and src_module != tgt_module:
+            nodes_set.add(src_module)
+            nodes_set.add(tgt_module)
+            edges_map[(src_module, tgt_module)] += 1
+            outgoing_counts[src_module] += 1
+            incoming_counts[tgt_module] += 1
+
+    # Detect cycles to tag circular nodes/edges
+    circular_cycles = _detect_circular_deps(imports, files)
+    circular_nodes: set[str] = set()
+    circular_edges: set[tuple[str, str]] = set()
+    for cycle in circular_cycles:
+        for node in cycle:
+            circular_nodes.add(node)
+        for i in range(len(cycle) - 1):
+            circular_edges.add((cycle[i], cycle[i + 1]))
+        if len(cycle) >= 2:
+            circular_edges.add((cycle[-1], cycle[0]))
+
+    sorted_nodes = sorted(nodes_set)
+    cols = 3
+    nodes = []
+    for i, n in enumerate(sorted_nodes):
+        nodes.append({
+            "id": n,
+            "type": "dependencyNode",
+            "position": {"x": (i % cols) * 360 + 50, "y": (i // cols) * 280 + 50},
+            "data": {
+                "label": n,
+                "name": n,
+                "incoming_count": incoming_counts[n],
+                "outgoing_count": outgoing_counts[n],
+                "is_circular": n in circular_nodes,
+                "blast_radius": incoming_counts[n],
+            },
+        })
+
+    edges_list = []
+    for (src, tgt), count in edges_map.items():
+        is_cycle = (src, tgt) in circular_edges
+        edges_list.append({
+            "id": f"{src}->{tgt}",
+            "source": src,
+            "target": tgt,
+            "label": f"{count} calls" if count > 1 else "",
+            "animated": is_cycle,
+            "style": {
+                "stroke": "#f43f5e" if is_cycle else "#06b6d4",
+                "strokeWidth": 2.5 if is_cycle else 1.5,
+            },
+            "data": {
+                "is_circular": is_cycle,
+                "call_count": count,
+            },
+        })
+
     return {"nodes": nodes, "edges": edges_list}
 
 
@@ -240,11 +322,13 @@ def _detect_circular_deps(imports: list[dict], files: list[dict]) -> list[list[s
     graph: dict[str, set[str]] = defaultdict(set)
 
     for imp in imports:
-        if not imp.get("is_relative", False):
+        target_raw = imp.get("module", "")
+        is_rel = imp.get("is_relative", False) or target_raw.startswith((".", "app.", "src."))
+        if not is_rel:
             continue
         src = _file_to_module(imp.get("file_path", ""))
-        tgt = imp.get("module", "")
-        if src and tgt:
+        tgt = _clean_target_module(target_raw)
+        if src and tgt and src != tgt:
             graph[src].add(tgt)
 
     cycles: list[list[str]] = []
@@ -267,18 +351,16 @@ def _detect_circular_deps(imports: list[dict], files: list[dict]) -> list[list[s
         path.pop()
         on_stack.discard(node)
 
-    for node in graph:
+    for node in list(graph.keys()):
         dfs(node, [], set())
 
-    return cycles[:20]
+    # Deduplicate cycles
+    unique_cycles = []
+    seen = set()
+    for c in cycles:
+        key = tuple(sorted(set(c)))
+        if key not in seen and len(c) > 1:
+            seen.add(key)
+            unique_cycles.append(c)
 
-
-def _file_to_module(file_path: str) -> str:
-    """Convert a file path to a module name."""
-    if not file_path:
-        return ""
-    parts = file_path.replace("\\", "/").split("/")
-    if parts:
-        # Use the first directory as module
-        return parts[0]
-    return file_path
+    return unique_cycles[:20]

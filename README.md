@@ -1,155 +1,88 @@
 # Repository Intelligence Engine (RIE)
 
-> **An MRI for your codebase** — AI-powered software intelligence platform that analyzes GitHub repositories using knowledge graphs, vector search, and local LLMs.
+Desktop Application for Local Codebase Intelligence, Architecture Discovery, and Security Auditing.
 
-![Status](https://img.shields.io/badge/status-Phase%201-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+---
 
-## What is RIE?
+## Overview
 
-RIE clones a GitHub repository, parses its source code, and builds a connected knowledge base covering:
+Repository Intelligence Engine (RIE) is a standalone desktop application built on Electron, React, and TypeScript. It provides comprehensive static analysis, architectural visualization, and security auditing for local software repositories. 
 
-- **Architecture Discovery** — auto-detect MVC, layered, hexagonal, microservices patterns
-- **API Discovery** — REST/GraphQL/gRPC endpoints with request lifecycle mapping
-- **Database Intelligence** — ER diagrams, migration history, ORM analysis
-- **Dependency Intelligence** — service dependency graphs, impact analysis
-- **Git Intelligence** — ownership, hotspots, change coupling, contributor stats
-- **Security Intelligence** — Semgrep, CodeQL, Joern — linked to the dependency graph
-- **Performance Intelligence** — N+1 queries, circular deps, heavy endpoints
-- **Technical Debt** — dead code, duplication, god classes, effort estimation
-- **AI Chat** — natural-language queries grounded in the knowledge graph
+RIE operates entirely offline on your machine. It requires zero external API keys, zero cloud subscriptions, and zero external network calls. All code intelligence is generated locally using deterministic Abstract Syntax Tree (AST) analysis, call graph modeling, graph centrality algorithms, and static security heuristics.
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|-----------|
-| **Parsing** | Tree-sitter, ts-morph, JavaParser, ANTLR |
-| **Static Analysis** | Semgrep, CodeQL, Joern |
-| **Git** | GitPython, pygit2, libgit2 |
-| **Knowledge Graph** | Neo4j (Memgraph-compatible interface) |
-| **Vector Search** | Qdrant |
-| **Full-Text Search** | Meilisearch |
-| **AI Models** | Ollama (DeepSeek Coder, Qwen, Llama 3) |
-| **Backend** | FastAPI, Celery, Redis |
-| **Database** | PostgreSQL |
-| **Frontend** | React, TypeScript, Tailwind CSS, React Flow, Cytoscape.js, Recharts |
-| **Deployment** | Docker Compose |
+## Key Features
 
-## Prerequisites
+- **Architecture Discovery**: Automatically identifies architectural patterns (MVC, Layered, Hexagonal, Microservices, Modular Monolith) and maps cross-module communication flows.
+- **API and Endpoint Discovery**: Detects REST, GraphQL, and RPC endpoints, extracting HTTP methods, routes, parameters, and handler bindings.
+- **Dependency and Impact Analysis**: Maps internal and external dependencies, identifying circular references, coupling bottlenecks, and architectural blast radius.
+- **Security Audit and Vulnerability Detection**: Scans for OWASP Top 10 vulnerabilities, insecure direct object references, dangerous input sinks, and high-entropy hardcoded secrets.
+- **Performance and Code Health**: Evaluates cognitive and cyclomatic complexity, dead code, duplicated logic, and N+1 query antipatterns.
+- **Git and History Intelligence**: Computes file churn, hotspot files, code ownership metrics, and author contribution distributions.
+- **Local Intelligence Console**: Interactive inspection of codebase components and symbol relationships powered by local graph reasoning.
 
-- **Docker** & **Docker Compose** (v2+)
-- **≥16 GB RAM** (for all services + Ollama models)
-- **≥50 GB disk** (Ollama models ~15-20 GB)
-- **Git** installed locally
+---
 
-## Quick Start
+## How It Works
+
+1. **Repository Selection**: Select any local folder or cloned repository using the native desktop file picker.
+2. **AST Parsing and Symbol Extraction**: Language-specific parsers analyze source files to extract functions, classes, interfaces, import statements, and function calls.
+3. **Graph Construction**: The analysis engine constructs an in-memory knowledge graph representing dependencies, file hierarchies, and symbol calls.
+4. **Algorithmic Analysis**:
+   - **Centrality Analysis**: PageRank algorithms evaluate structural hubs and single points of failure.
+   - **Cycle Detection**: Graph traversal algorithms pinpoint circular dependency loops.
+   - **Heuristic Pattern Matching**: Static rule engines detect security flaws and architectural antipatterns.
+5. **Interactive Visualization**: The Electron renderer displays interactive dependency graphs, metrics cards, and filtered vulnerability tables with smooth animations.
+
+---
+
+## Technology Stack
+
+- **Desktop Shell**: Electron
+- **User Interface**: React, TypeScript, Vite, Tailwind CSS
+- **Visualization**: React Flow, Cytoscape.js, Recharts
+- **Icons**: Lucide Icons (clean SVG icons, zero emojis)
+- **Analysis Engine**: Python / Node AST engines, Tree-sitter, NetworkX
+- **Local Storage**: Embedded SQLite
+
+---
+
+## Quick Start (Development)
+
+### Prerequisites
+
+- Node.js (v20+)
+- Python (3.11+)
+- Git
+
+### Installation
 
 ```bash
 # 1. Clone the repository
 git clone <repo-url>
 cd repository-intelligence-engine
 
-# 2. Copy the environment file
-cp .env.example .env
-
-# 3. Start all services
-docker compose up -d
-
-# 4. Wait for all services to be healthy
-docker compose ps
-
-# 5. Open the dashboard
-open http://localhost:3000
-
-# 6. Or use the API directly
-curl http://localhost:8000/health
-```
-
-### First-time setup notes
-
-- The `ollama-init` service will pull 3 AI models (~15-20 GB total) on first run. This takes time.
-- Neo4j takes ~30s to start. The backend waits for it automatically.
-- All data is persisted in Docker volumes.
-
-## API
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/repositories` | Submit a GitHub URL for analysis |
-| `GET` | `/api/repositories/{id}/status` | Pipeline progress |
-| `GET` | `/api/repositories/{id}/architecture` | Architecture analysis |
-| `GET` | `/api/repositories/{id}/apis` | Discovered endpoints |
-| `GET` | `/api/repositories/{id}/database` | Database schema |
-| `GET` | `/api/repositories/{id}/dependencies` | Dependency graph |
-| `GET` | `/api/repositories/{id}/git-insights` | Git history intelligence |
-| `GET` | `/api/repositories/{id}/security` | Security findings |
-| `GET` | `/api/repositories/{id}/performance` | Performance findings |
-| `GET` | `/api/repositories/{id}/technical-debt` | Debt assessment |
-| `GET` | `/api/repositories/{id}/graph` | Knowledge graph (Cytoscape.js) |
-| `POST` | `/api/repositories/{id}/chat` | AI chat with citations |
-| `WS` | `/ws/scan/{repo_id}` | Real-time scan progress |
-
-## Development
-
-```bash
-# Backend (without Docker)
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-
-# Frontend (without Docker)
-cd frontend
+# 2. Install dependencies
 npm install
+
+# 3. Launch the desktop application
 npm run dev
-
-# Run tests
-cd backend && pytest -v
-cd frontend && npm test
 ```
 
-## Architecture
+---
 
-```
-Presentation (React) → API (FastAPI) → Analysis Modules
-                                        ↓
-                         Knowledge Graph (Neo4j) + Vector (Qdrant) + Search (Meilisearch)
-                                        ↓
-                              AI Chat (Ollama / RAG)
-```
+## Phased Project Architecture
 
-## Project Structure
+- **Phase 1: Housekeeping and Cleanup**: Removal of legacy Docker containers, obsolete configs, and unused scratch files.
+- **Phase 2: Electron Desktop Foundation**: Native desktop window, preload context bridge, and local filesystem integration.
+- **Phase 3: User Interface Redesign**: Modern dark-mode interface with borderless buttons, fluid animations, and zero emojis.
+- **Phase 4: Local Intelligence Engine**: AST parsing, in-memory graph modeling, and rule-based security analyzers requiring zero API keys.
+- **Phase 5: IPC and Pipeline Integration**: Asynchronous progress streaming between the Electron shell and the local analysis engine.
+- **Phase 6: Verification and Packaging**: Standalone cross-platform desktop installer production.
 
-```
-repository-intelligence-engine/
-├── docker-compose.yml          # All 10 services
-├── .env.example                # Environment template
-├── .github/workflows/ci.yml    # CI pipeline
-├── backend/
-│   ├── app/
-│   │   ├── api/                # FastAPI routers
-│   │   ├── core/               # Config, database, security, logging
-│   │   ├── models/             # SQLAlchemy + Pydantic models
-│   │   ├── parsing/            # Tree-sitter / ts-morph / JavaParser
-│   │   ├── analysis/           # Architecture, API, DB, deps, git, security, perf, debt
-│   │   ├── graph/              # Neo4j driver (interface-based)
-│   │   ├── vector/             # Qdrant client
-│   │   ├── search/             # Meilisearch client
-│   │   ├── ai/                 # Ollama client + RAG
-│   │   └── tasks/              # Celery pipeline
-│   ├── tests/
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── components/         # Sidebar, Header
-│   │   ├── views/              # All 8 dashboard views
-│   │   └── lib/                # API + WebSocket clients
-│   ├── Dockerfile
-│   └── package.json
-└── infra/
-    └── postgres/init.sql
-```
+---
 
 ## License
 
-MIT
+MIT License.

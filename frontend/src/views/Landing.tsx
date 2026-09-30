@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, GitBranch, Shield, Zap, Brain, Search, Database, Network, Sparkles } from 'lucide-react';
+import { ArrowRight, GitBranch, Shield, Zap, Brain, Search, Database, Network, Sparkles, FolderOpen } from 'lucide-react';
 import { repositoryApi } from '../lib/api';
 
 const features = [
@@ -26,6 +26,20 @@ export default function Landing() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  const handleSelectLocalFolder = async () => {
+    if (window.electronAPI) {
+      try {
+        const folder = await window.electronAPI.selectFolder();
+        if (folder) {
+          setUrl(folder);
+          void handleAnalyze(folder);
+        }
+      } catch (err) {
+        setError('Failed to select local directory');
+      }
+    }
+  };
+
   const handleAnalyze = async (targetUrl = url) => {
     const finalUrl = targetUrl.trim();
     if (!finalUrl) return;
@@ -35,7 +49,10 @@ export default function Landing() {
       const { data } = await repositoryApi.create({ github_url: finalUrl });
       navigate(`/overview?repo=${data.id}`);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to trigger repository scan';
+      let msg = err instanceof Error ? err.message : 'Failed to trigger repository scan';
+      if (msg === 'Network Error' || (err as { code?: string })?.code === 'ERR_NETWORK') {
+        msg = 'Cannot reach local analysis engine on port 8000. Please wait for the engine to initialize or click restart in the top bar.';
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -101,8 +118,24 @@ export default function Landing() {
           security, performance, and technical debt — powered by knowledge graphs and AI.
         </p>
 
-        {/* Input */}
+        {/* Input & Desktop Action */}
         <div className="flex flex-col gap-3 max-w-xl mx-auto">
+          {/* Desktop Browse Action */}
+          <button
+            type="button"
+            onClick={handleSelectLocalFolder}
+            className="btn-secondary w-full py-3.5 px-6 rounded-xl flex items-center justify-center gap-2.5 text-sm font-semibold shadow-lg shadow-black/30 cursor-pointer"
+          >
+            <FolderOpen className="w-4 h-4 text-amber-400" />
+            <span>Select Local Repository Folder</span>
+          </button>
+
+          <div className="flex items-center gap-3 my-1">
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider font-semibold">Or analyze by URL or Path</span>
+            <div className="flex-1 h-px bg-white/10" />
+          </div>
+
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <GitBranch className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -111,7 +144,7 @@ export default function Landing() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-                placeholder="https://github.com/user/repo"
+                placeholder="e.g. C:\projects\repo or https://github.com/user/repo"
                 className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] text-sm transition-colors"
               />
             </div>
@@ -127,7 +160,7 @@ export default function Landing() {
 
           {error && <p className="text-xs text-[var(--accent-rose)] text-left pl-2">{error}</p>}
 
-          {/* Quick Demo buttons */}
+          {/* Quick Demo buttons - strictly borderless */}
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-1 justify-center">
             <Sparkles className="w-3 h-3 text-[var(--accent-amber)]" />
             <span>Try:</span>
@@ -138,7 +171,7 @@ export default function Landing() {
                   setUrl(sample.url);
                   void handleAnalyze(sample.url);
                 }}
-                className="px-2.5 py-1 rounded-md bg-[var(--bg-glass)] border border-[var(--border-color)] text-[var(--accent-cyan)] hover:border-[var(--accent-cyan)] transition-colors text-xs"
+                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--accent-cyan)] transition-all text-xs font-medium cursor-pointer"
               >
                 {sample.label}
               </button>

@@ -1,32 +1,13 @@
 import { useState, useCallback } from 'react';
-import { Search, Bell, Plus, Settings, X } from 'lucide-react';
+import { Search, Bell, Settings, Shield } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useRepositoryContext } from '../contexts/useRepositoryContext';
-import { repositoryApi } from '../lib/api';
+import { useModal } from '../contexts/ModalContext';
 
 export default function Header() {
-  const [showAddRepo, setShowAddRepo] = useState(false);
-  const [repoUrl, setRepoUrl] = useState('');
-  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const { setRepo } = useRepositoryContext();
+  const { openRepositoryModal } = useModal();
   const navigate = useNavigate();
   const location = useLocation();
-
-  const handleAddRepo = async () => {
-    if (!repoUrl.trim()) return;
-    setLoading(true);
-    try {
-      const { data } = await repositoryApi.create({ github_url: repoUrl.trim() });
-      setRepo(data);
-      setRepoUrl('');
-      setShowAddRepo(false);
-    } catch (err) {
-      console.error('Failed to add repository:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSearch = useCallback(() => {
     if (!searchQuery.trim()) return;
@@ -39,71 +20,61 @@ export default function Header() {
   }, [searchQuery, navigate, location.search]);
 
   return (
-    <header className="h-14 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-between px-6 flex-shrink-0 relative">
-      {/* Subtle bottom glow */}
-      <div
-        className="absolute bottom-0 left-0 right-0 h-px"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.15) 50%, transparent)' }}
-      />
+    <header className="h-[var(--header-height)] border-b border-white/[0.08] bg-[#12151b] flex items-center justify-between flex-shrink-0 sticky top-0 z-40 w-full select-none">
+      {/* Logo Section — unified seamless header */}
+      <div className="flex items-center gap-3.5 px-6 pl-8 h-full flex-shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-md shadow-amber-500/20 flex-shrink-0">
+          <Shield className="w-5 h-5 text-white" />
+        </div>
+        <div className="flex flex-col justify-center">
+          <h1 className="text-base font-extrabold tracking-tight text-gray-100 font-[Plus_Jakarta_Sans] leading-none">
+            RIE
+          </h1>
+          <p className="text-[9px] text-amber-400/90 font-semibold tracking-[0.14em] uppercase mt-1 leading-none">
+            Intelligence Engine
+          </p>
+        </div>
+      </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-3 flex-1 max-w-md">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
+      {/* Search Bar — with guaranteed spacing between icon and placeholder */}
+      <div className="flex items-center flex-1 max-w-xl mx-8">
+        <div className="relative w-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Ask AI about this repo..."
-            className="w-full pl-9 pr-4 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors focus:border-[var(--accent-blue)]"
+            placeholder="Ask AI assistant about this repository..."
+            style={{ paddingLeft: '48px' }}
+            className="w-full h-10 pr-4 rounded-xl bg-[#1e2330]/80 border border-white/10 text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/15 transition-all shadow-inner"
           />
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        {showAddRepo ? (
-          <div className="flex items-center gap-2 animate-fade-in">
-            <input
-              type="text"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddRepo()}
-              placeholder="https://github.com/user/repo"
-              className="px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] w-72 transition-colors"
-              autoFocus
-            />
-            <button
-              onClick={handleAddRepo}
-              disabled={loading}
-              className="btn-primary text-xs py-1.5 px-4"
-            >
-              {loading ? 'Analyzing...' : 'Analyze'}
-            </button>
-            <button
-              onClick={() => setShowAddRepo(false)}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg-primary)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowAddRepo(true)}
-            className="btn-primary text-xs py-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Repository
-          </button>
-        )}
-
-        <button className="p-1.5 rounded-lg hover:bg-[var(--bg-primary)] transition-colors">
-          <Bell className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+      {/* Actions — shifted inward from extreme corner */}
+      <div className="flex items-center gap-3.5 pr-10 lg:pr-14 flex-shrink-0">
+        <button
+          onClick={openRepositoryModal}
+          className="btn-primary h-10 px-5 text-sm font-semibold rounded-xl flex items-center gap-2 shadow-md shadow-amber-500/20"
+        >
+          <span className="text-base font-bold leading-none">+</span> Add Repository
         </button>
 
-        <button className="p-1.5 rounded-lg hover:bg-[var(--bg-primary)] transition-colors">
-          <Settings className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+        <div className="h-5 w-px bg-white/10 mx-1" />
+
+        <button
+          title="Notifications"
+          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-gray-400 hover:text-gray-100 flex items-center justify-center cursor-pointer"
+        >
+          <Bell className="w-4 h-4" />
+        </button>
+
+        <button
+          title="Settings"
+          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-gray-400 hover:text-gray-100 flex items-center justify-center cursor-pointer"
+        >
+          <Settings className="w-4 h-4" />
         </button>
       </div>
     </header>

@@ -17,11 +17,17 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
+    Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+
+# DB-agnostic column types supporting both PostgreSQL and SQLite
+JSON_TYPE = JSONB().with_variant(JSON(), "sqlite")
+UUID_TYPE = PG_UUID(as_uuid=True).with_variant(Uuid(as_uuid=True), "sqlite")
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -63,7 +69,7 @@ class Severity(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     username = Column(String(255), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False)
     api_key = Column(String(255), unique=True, nullable=True)
@@ -77,10 +83,10 @@ class User(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    owner_id = Column(UUID_TYPE, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -91,20 +97,20 @@ class Project(Base):
 class Repository(Base):
     __tablename__ = "repositories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID_TYPE, ForeignKey("projects.id"), nullable=True)
     github_url = Column(String(512), nullable=False)
     name = Column(String(255), nullable=False)
     default_branch = Column(String(255), default="main")
     clone_path = Column(String(1024), nullable=True)
-    languages = Column(JSONB, default=list)
-    frameworks = Column(JSONB, default=list)
-    package_managers = Column(JSONB, default=list)
+    languages = Column(JSON_TYPE, default=list)
+    frameworks = Column(JSON_TYPE, default=list)
+    package_managers = Column(JSON_TYPE, default=list)
     is_monorepo = Column(Boolean, default=False)
     total_files = Column(Integer, default=0)
     total_lines = Column(Integer, default=0)
     health_score = Column(Float, nullable=True)
-    metadata_ = Column("metadata", JSONB, default=dict)
+    metadata_ = Column("metadata", JSON_TYPE, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -116,8 +122,8 @@ class Repository(Base):
 class ScanJob(Base):
     __tablename__ = "scan_jobs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    repository_id = Column(UUID(as_uuid=True), ForeignKey("repositories.id"), nullable=False)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    repository_id = Column(UUID_TYPE, ForeignKey("repositories.id"), nullable=False)
     status = Column(Enum(ScanStatus), default=ScanStatus.PENDING, nullable=False)
     current_phase = Column(String(100), nullable=True)
     progress = Column(Float, default=0.0)  # 0.0 to 100.0
@@ -125,7 +131,7 @@ class ScanJob(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
-    results_summary = Column(JSONB, default=dict)
+    results_summary = Column(JSON_TYPE, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -135,9 +141,9 @@ class ScanJob(Base):
 class Finding(Base):
     __tablename__ = "findings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    repository_id = Column(UUID(as_uuid=True), ForeignKey("repositories.id"), nullable=False)
-    scan_job_id = Column(UUID(as_uuid=True), ForeignKey("scan_jobs.id"), nullable=True)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    repository_id = Column(UUID_TYPE, ForeignKey("repositories.id"), nullable=False)
+    scan_job_id = Column(UUID_TYPE, ForeignKey("scan_jobs.id"), nullable=True)
     finding_type = Column(Enum(FindingType), nullable=False)
     severity = Column(Enum(Severity), default=Severity.INFO)
     title = Column(String(500), nullable=False)
@@ -148,7 +154,7 @@ class Finding(Base):
     rule_id = Column(String(255), nullable=True)
     tool = Column(String(100), nullable=True)  # semgrep, codeql, joern, custom
     recommendation = Column(Text, nullable=True)
-    metadata_ = Column("metadata", JSONB, default=dict)
+    metadata_ = Column("metadata", JSON_TYPE, default=dict)
     graph_node_id = Column(String(255), nullable=True)  # links to Neo4j node
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -158,8 +164,9 @@ class Finding(Base):
 class Setting(Base):
     __tablename__ = "settings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     key = Column(String(255), unique=True, nullable=False, index=True)
-    value = Column(JSONB, nullable=True)
+    value = Column(JSON_TYPE, nullable=True)
     description = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

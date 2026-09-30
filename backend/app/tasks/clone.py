@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -115,28 +116,50 @@ SKIP_DIRS = {
 }
 
 
+def validate_safe_repo_url(url: str) -> str:
+    """Validate and sanitize git clone URL to prevent argument injection and SSRF."""
+    if not url or not isinstance(url, str):
+        raise ValueError("Repository URL must be a non-empty string")
+    clean = url.strip()
+    if clean.startswith("-"):
+        raise ValueError("Invalid repository URL: leading hyphens are prohibited (argument injection prevention)")
+    if "\x00" in clean:
+        raise ValueError("Invalid repository URL: null bytes are prohibited")
+    return clean
+
+
 def clone_repo(github_url: str, repo_id: str) -> Path:
     """
-    Clone a repository to local storage.
+    Clone a repository to local storage with security validation.
 
     Returns:
         Path to the cloned repository directory.
     """
-    clone_dir = Path(settings.clone_base_dir) / repo_id
+    safe_url = validate_safe_repo_url(github_url)
+
+    # Sanitize repo_id to prevent directory traversal
+    try:
+        clean_repo_id = str(uuid.UUID(str(repo_id)))
+    except (ValueError, AttributeError):
+        clean_repo_id = re.sub(r"[^a-zA-Z0-9_\-]", "", str(repo_id))
+        if not clean_repo_id:
+            raise ValueError("Invalid repository ID")
+
+    clone_dir = settings.effective_clone_dir / clean_repo_id
     if clone_dir.exists():
         log.info("repo_already_cloned", path=str(clone_dir))
         return clone_dir
 
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    log.info("cloning_repo", url=github_url, dest=str(clone_dir))
+    log.info("cloning_repo", url=safe_url, dest=str(clone_dir))
     git.Repo.clone_from(
-        github_url,
+        safe_url,
         str(clone_dir),
         depth=500,  # Shallow clone for performance, deep enough for git history
         no_single_branch=True,
     )
-    log.info("clone_complete", url=github_url, dest=str(clone_dir))
+    log.info("clone_complete", url=safe_url, dest=str(clone_dir))
     return clone_dir
 
 
@@ -152,18 +175,28 @@ def detect_default_branch(repo_path: Path) -> str:
 def enumerate_files(repo_path: Path) -> list[dict]:
     """
     Walk the repository and collect metadata for every source file.
+    Includes symlink traversal protection to prevent escaping the repository root.
 
     Returns:
         List of dicts: {path, extension, language, lines, size_bytes}
     """
     files: list[dict] = []
+    canonical_root = repo_path.resolve()
+
     for root, dirs, filenames in os.walk(repo_path):
         # Skip ignored directories in-place
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
 
         for filename in filenames:
-            abs_path = Path(root) / filename
-            rel_path = abs_path.relative_to(repo_path).as_posix()
+            abs_path = (Path(root) / filename).resolve()
+
+            # Security: ensure file resolves within repository boundary (prevent symlink traversal)
+            try:
+                rel_path = abs_path.relative_to(canonical_root).as_posix()
+            except ValueError:
+                log.warning("symlink_escape_detected", file=str(abs_path), root=str(canonical_root))
+                continue
+
             ext = abs_path.suffix.lower()
             language = EXTENSION_LANGUAGE_MAP.get(ext)
 

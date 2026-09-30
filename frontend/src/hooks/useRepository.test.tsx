@@ -4,8 +4,7 @@ import { useRepository } from './useRepository';
 
 vi.mock('../lib/api');
 
-const mockedGet = vi.mocked(repositoryApi.get);
-const mockedGetStatus = vi.mocked(repositoryApi.getStatus);
+const mockedGetSummary = vi.mocked(repositoryApi.getSummary);
 
 describe('useRepository', () => {
   beforeEach(() => {
@@ -13,11 +12,17 @@ describe('useRepository', () => {
   });
 
   test('fetches repository and scan job for a given repoId', async () => {
-    mockedGet.mockResolvedValue({
-      data: { id: 'repo-1', name: 'acme/webapp', total_files: 42, total_lines: 1337 },
-    });
-    mockedGetStatus.mockResolvedValue({
-      data: { id: 'scan-1', status: 'completed', progress: 100, current_phase: 'done' },
+    mockedGetSummary.mockResolvedValue({
+      repository: { id: 'repo-1', name: 'acme/webapp', total_files: 42, total_lines: 1337 } as any,
+      scan_job: { id: 'scan-1', status: 'completed', progress: 100, current_phase: 'done' } as any,
+      architecture: null,
+      apis: null,
+      database: null,
+      dependencies: null,
+      git_insights: null,
+      security: null,
+      performance: null,
+      technical_debt: null,
     });
 
     const { result } = renderHook(() => useRepository('repo-1'));
@@ -26,8 +31,7 @@ describe('useRepository', () => {
 
     await waitFor(() => expect(result.current.repository?.id).toBe('repo-1'));
 
-    expect(mockedGet).toHaveBeenCalledWith('repo-1');
-    expect(mockedGetStatus).toHaveBeenCalledWith('repo-1');
+    expect(mockedGetSummary).toHaveBeenCalledWith('repo-1');
     expect(result.current.repository?.name).toBe('acme/webapp');
     expect(result.current.scanJob?.status).toBe('completed');
     expect(result.current.scanJob?.progress).toBe(100);
@@ -40,13 +44,13 @@ describe('useRepository', () => {
     expect(result.current.repository).toBeNull();
     expect(result.current.scanJob).toBeNull();
     expect(result.current.loading).toBe(false);
-    expect(mockedGet).not.toHaveBeenCalled();
+    expect(mockedGetSummary).not.toHaveBeenCalled();
   });
 
   test('surfaces an error when the fetch fails', async () => {
-    mockedGet.mockRejectedValue(new Error('Network error'));
+    mockedGetSummary.mockRejectedValue(new Error('Network error'));
 
-    const { result } = renderHook(() => useRepository('repo-1'));
+    const { result } = renderHook(() => useRepository('repo-error'));
 
     await waitFor(() => expect(result.current.error).toBe('Network error'));
     expect(result.current.repository).toBeNull();

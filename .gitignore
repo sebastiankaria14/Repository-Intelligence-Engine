@@ -33,7 +33,16 @@ build/
 # Cloned repos
 repos/
 
-# Coverage
+# Coverage & Cache
 .coverage
 htmlcov/
 .pytest_cache/
+.ruff_cache/
+
+# Local Databases, Logs & Release
+*.db
+*.sqlite
+*.sqlite3
+rie.db
+task_logs/
+release/

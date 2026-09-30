@@ -1,0 +1,21 @@
+{
+  "name": "repository-intelligence-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop Application for Local Codebase Intelligence, Architecture Discovery, and Security Auditing",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:desktop": "npm --prefix frontend run dev:desktop",
+    "dev:web": "concurrently -k -r \"npm run backend\" \"npm --prefix frontend run dev:web\"",
+    "backend": "python -m uvicorn app.main:app --app-dir backend --port 8000 --host 127.0.0.1",
+    "start": "npm run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "python -m pytest backend/tests && npm --prefix frontend run test:run",
+    "test:backend": "python -m pytest backend/tests",
+    "test:frontend": "npm --prefix frontend run test:run",
+    "lint": "npm --prefix frontend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
